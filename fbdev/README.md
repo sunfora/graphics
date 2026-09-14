@@ -16,6 +16,7 @@ Reading List:
  - https://www.kernel.org/doc/html/v7.2/fb/index.html
  - https://tldp.meulie.net/en/Framebuffer-HOWTO/Framebuffer-HOWTO.pdf
  - https://web.archive.org/web/20051129084903/http://dri.freedesktop.org/~jonsmirl/graphics.html
+ - https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-header
 
 Sources:
  - http://www.paulbourke.net/dataformats/tga/
