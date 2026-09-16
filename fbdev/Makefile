@@ -8,7 +8,7 @@ TARGET=poc
 all: $(TARGET)
 
 $(TARGET): test.c
-	$(CC) -pthread $(CFLAGS) -g3 -O2 test.c $(LDLIBS) -o $(TARGET)
+	$(CC) -pthread $(CFLAGS) -g3 -O2 -march=x86-64-v3 test.c $(LDLIBS) -o $(TARGET)
 
 lsp_stuff: distclean
 	bear -- $(MAKE) all
