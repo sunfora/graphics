@@ -24,6 +24,9 @@
 #include <stdlib.h>
 #include <assert.h>
 
+#define max(a, b) (a > b? a : b)
+#define min(a, b) (a < b? a : b)
+
 int32_t fd_tty;
 
 volatile sig_atomic_t keep_running = 1;
@@ -138,6 +141,94 @@ uint32_t tga_texture_size(const struct tga_texture* texture)
   uint32_t pixel_depth = texture->pixel_depth;
 
   return width * height * (pixel_depth / 8);
+}
+
+void alpha_blend_quad_memcpy
+  (void* restrict bytes_d,
+   void* restrict bytes_a, 
+   int32_t d_width,      int32_t d_height,
+   int32_t a_width,      int32_t a_height,
+   int32_t d_quad_x,     int32_t d_quad_y,
+   int32_t a_quad_x,     int32_t a_quad_y,
+   int32_t quad_width,   int32_t quad_height
+   )
+{
+  uint32_t* color_a = bytes_a;
+  uint32_t* color_d = bytes_d;
+
+  assert(d_width     > 0);
+  assert(d_height    > 0);
+  assert(a_width     > 0);
+  assert(a_height    > 0);
+  assert(quad_width  > 0);
+  assert(quad_height > 0);
+  
+  // NOTE(ivan): this must be signed, since if sprite is out of the screen
+  //             the height and width would be negative
+  int32_t a_quad_height   = min(a_quad_y + quad_height, a_height) - a_quad_y;
+  int32_t a_quad_width    = min(a_quad_x + quad_width,  a_width ) - a_quad_x;
+  int32_t d_quad_height   = min(d_quad_y + quad_height, d_height) - d_quad_y;
+  int32_t d_quad_width    = min(d_quad_x + quad_width,  d_width ) - d_quad_x;
+
+  int32_t vis_quad_height = min(a_quad_height, d_quad_height);
+  int32_t vis_quad_width  = min(a_quad_width,  d_quad_width );
+
+  // NOTE(ivan): this can go further than vis_quad_width
+  //             but that's okay
+  int32_t vis_quad_y      = max(max(-a_quad_y, -d_quad_y), 0);
+  int32_t vis_quad_x      = max(max(-a_quad_x, -d_quad_x), 0);
+  
+  for (int32_t y = vis_quad_y; y < vis_quad_height; y++) {
+    for (int32_t x = vis_quad_x; x < vis_quad_width; x++) {
+
+      int32_t a_x = a_quad_x + x;
+      int32_t a_y = a_quad_y + y;
+
+      int32_t d_x = d_quad_x + x;
+      int32_t d_y = d_quad_y + y;
+      
+      // otherwise 
+      {
+        uint32_t a_flat_index = a_x + a_y * a_width;
+        uint32_t d_flat_index = d_x + d_y * d_width;
+        
+        uint32_t a = color_a[a_flat_index];
+        uint32_t d = color_d[d_flat_index];
+        uint32_t r = 0;
+
+        uint8_t a_a = a >> 24;
+        uint8_t a_r = a >> 16;
+        uint8_t a_g = a >> 8;
+        uint8_t a_b = a >> 0;
+
+        uint8_t d_a = d >> 24;
+        uint8_t d_r = d >> 16;
+        uint8_t d_g = d >> 8;
+        uint8_t d_b = d >> 0;
+
+        uint32_t alpha   = a_a;
+        uint32_t i_alpha = 0xFF - alpha;
+        
+        // review this trick and find out why this works
+        // but keep for now as is
+        //
+        // proudly stolen from here: 
+        // https://arxiv.org/pdf/2202.02864
+        //
+        uint8_t r_a = 0xFF;
+        uint8_t r_r = ((a_r * alpha) + (d_r * i_alpha) + 128) >> 8;
+        uint8_t r_g = ((a_g * alpha) + (d_g * i_alpha) + 128) >> 8;
+        uint8_t r_b = ((a_b * alpha) + (d_b * i_alpha) + 128) >> 8;
+
+        r |= (r_a << 24) 
+          |  (r_r << 16) 
+          |  (r_g << 8)  
+          |  (r_b << 0);
+
+        color_d[d_flat_index] = r;
+      }
+    }
+  }
 }
 
 void* tga_quick_map(const char* mapping_path, uint16_t width, uint16_t height)
@@ -374,8 +465,21 @@ int real_main() {
         fb0_size
       );
 
+      // draw cursor
+      alpha_blend_quad_memcpy(
+        frame_ram,
+        ui_elements->pixels,
+        screen_x, screen_y,
+        ui_elements->width, ui_elements->height,
+        cfg->x, cfg->y,
+        0, 0,
+        128, 128
+      );
+
       memcpy(frame, frame_ram, fb0_size);
 
+      draw_cycles_end = __builtin_ia32_rdtsc();
+      draw_cycles_elapsed = draw_cycles_end - draw_cycles_start;
       draw_end     = get_time_sec();
       draw_elapsed = draw_end - draw_start;
 
@@ -383,6 +487,7 @@ int real_main() {
       //       in reality it creates a double vsync on drm kms emulated fb0 driver
       // ioctl(fd_fb0, FBIO_WAITFORVSYNC, &crtc_number);
       ioctl(fd_fb0, FBIOPAN_DISPLAY, &v_info);
+
     }
   
     // cleanup
