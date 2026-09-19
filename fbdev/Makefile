@@ -16,7 +16,7 @@ lsp_stuff: distclean
 	generate_clangd
 
 watch:
-	@echo .root/fbdev/scripts/$(script) | entr -r tcc '-run $(CFLAGS) $(LDLIBS)' .root/fbdev/script/$(script)
+	@echo $(script) | entr -r tcc '-run $(CFLAGS) $(LDLIBS)' $(script)
 
 run: $(TARGET)
 	sudo .root/fbdev/bin/framebuffer
