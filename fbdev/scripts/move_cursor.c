@@ -1,47 +1,12 @@
-#include <sys/mman.h>
-#include <signal.h>
-#include <math.h>
-#include <time.h>
-#include <stdint.h>
-#include <unistd.h>
-#include <fcntl.h>
-
-struct config {
-  int32_t x;
-  int32_t y;
-  uint32_t rgba_background;
-};
-
-volatile sig_atomic_t keep_running = 1;
-
-void handle_sigint(int sig) {
-    keep_running = 0; 
-}
-
-double get_time_sec(void) {
-    struct timespec ts;
-    // syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &ts);
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
-}
+#define main undefined
+#include ".root/fbdev/framebuffer.c"
+#undef main 
 
 int main() {
-
     signal(SIGINT, handle_sigint);
 
-
-    // open up live config
     int32_t pagesize = sysconf(_SC_PAGESIZE); // just make a page
-    volatile struct config* cfg = NULL;
-    {
-      int32_t config_fd = open("config.bin", O_RDWR);
-      cfg = mmap(
-          NULL, pagesize,
-          PROT_READ | PROT_WRITE,
-          MAP_SHARED, config_fd, 0
-      );
-      close(config_fd);
-    }
+    volatile struct config* cfg = config_quick_edit(".root/fbdev/data/config.bin", pagesize);
 
     double start = get_time_sec();
     double now   = get_time_sec();
@@ -97,7 +62,7 @@ int main() {
       point_x += speed * dt * dx / sqrt(dx*dx + dy*dy);
       point_y += speed * dt * dy / sqrt(dx*dx + dy*dy);
       
-      cfg->x = mode_x;
-      cfg->y = mode_y;
+      cfg->x = mode_x - 500;
+      cfg->y = mode_y - 500;
     }
 }

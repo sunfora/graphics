@@ -27,11 +27,29 @@
 #define max(a, b) (a > b? a : b)
 #define min(a, b) (a < b? a : b)
 
+#define interpret(type_name, ptr, ...) \
+    struct __attribute__((packed, may_alias)) type_name { __VA_ARGS__ } *type_name = \
+    (struct type_name *)(ptr)
+
 int32_t fd_tty;
 
 volatile sig_atomic_t keep_running = 1;
 volatile sig_atomic_t now_afk = 0;
 volatile sig_atomic_t was_afk = 0;
+
+uint64_t get_rdtsc() {
+  uint64_t result;
+  interpret(view, &result, 
+    uint32_t lo; 
+    uint32_t hi;
+  );
+  asm volatile (
+    "rdtsc" : 
+      "=a" (view->lo), 
+      "=d" (view->hi)
+  );
+  return result;
+}
 
 void handle_sigint(int sig) {
     keep_running = 0; 
@@ -43,11 +61,6 @@ double get_time_sec(void) {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
 }
-
-
-#define interpret(type_name, ptr, ...) \
-    struct __attribute__((packed, may_alias)) type_name { __VA_ARGS__ } *type_name = \
-    (struct type_name *)(ptr)
 
 struct config {
   int32_t x;
@@ -231,7 +244,7 @@ void alpha_blend_quad_memcpy
   }
 }
 
-void* tga_quick_map(const char* mapping_path, uint16_t width, uint16_t height)
+struct tga_texture* tga_quick_map(const char* mapping_path, uint16_t width, uint16_t height)
 {
   struct tga_texture* texture = NULL;
 
@@ -241,67 +254,145 @@ void* tga_quick_map(const char* mapping_path, uint16_t width, uint16_t height)
   uint8_t  pixel_depth = 32;
   uint8_t  pixel_depth_bytes = pixel_depth / 8;
 
+  uint32_t texture_size = sizeof(struct tga_texture) + width_32 * height_32 * pixel_depth_bytes;
+  {
+    int result_open = open(mapping_path, O_RDWR | O_CREAT);;
+    if (result_open >= 0) 
+    {
+      int texture_fd = result_open;
+      int result_chmod = fchmod(texture_fd, permissions);
+      if (result_chmod >= 0) 
+      {
+        int result_truncate = ftruncate(texture_fd, texture_size);
+        if (result_truncate >= 0) 
+        {
+          void* result_mmap = mmap(
+            NULL, texture_size,
+            PROT_READ | PROT_WRITE,
+            MAP_SHARED, texture_fd, 0
+          );
+          if (result_mmap != MAP_FAILED) 
+          {
+            texture = result_mmap;
+
+            texture->image_type        |= TGA_IT_UNCOMPRESSED_TRUE_COLOR;
+            texture->image_description |= TGA_ID_ALPHA_CHANNEL;
+            texture->image_description |= TGA_ID_FROM_TOP_LEFT;
+
+            texture->image_id = TGA_ALIGN;
+
+            texture->pixel_depth = pixel_depth;
+            texture->width  = width;
+            texture->height = height;
+          }
+        } 
+      }
+      close(result_open);
+    }
+  }
+  return texture;
+}
+
+struct tga_texture* tga_quick_edit(const char* mapping_path, uint16_t width, uint16_t height)
+{
+  struct tga_texture* texture = NULL;
+
+  uint32_t width_32    = width;
+  uint32_t height_32   = height;
+  uint8_t  pixel_depth = 32;
+  uint8_t  pixel_depth_bytes = pixel_depth / 8;
 
   uint32_t texture_size = sizeof(struct tga_texture) + width_32 * height_32 * pixel_depth_bytes;
   {
-    int32_t texture_fd = open(mapping_path, O_RDWR | O_CREAT);
-
-    if (texture_fd == -1) 
+    int result_open = open(mapping_path, O_RDWR);;
+    if (result_open >= 0) 
     {
-      return NULL;
-    }
-
-    fchmod(texture_fd, permissions);
-    ftruncate(texture_fd, texture_size);
-
-    texture = mmap(
+      int texture_fd = result_open;
+      void* result_mmap = mmap(
         NULL, texture_size,
         PROT_READ | PROT_WRITE,
         MAP_SHARED, texture_fd, 0
-    );
+      );
+      if (result_mmap != MAP_FAILED) 
+      {
+        texture = result_mmap;
 
-    if (texture == MAP_FAILED) 
-    {
-      return NULL;
+        texture->image_type        |= TGA_IT_UNCOMPRESSED_TRUE_COLOR;
+        texture->image_description |= TGA_ID_ALPHA_CHANNEL;
+        texture->image_description |= TGA_ID_FROM_TOP_LEFT;
+
+        texture->image_id = TGA_ALIGN;
+
+        texture->pixel_depth = pixel_depth;
+        texture->width  = width;
+        texture->height = height;
+      }
+      close(result_open);
     }
-    
-    texture->image_type        |= TGA_IT_UNCOMPRESSED_TRUE_COLOR;
-    texture->image_description |= TGA_ID_ALPHA_CHANNEL;
-    texture->image_description |= TGA_ID_FROM_TOP_LEFT;
-
-    texture->image_id = TGA_ALIGN;
-
-    texture->pixel_depth = pixel_depth;
-    texture->width  = width;
-    texture->height = height;
-
-    close(texture_fd);
   }
   return texture;
+}
+
+struct config* config_quick_edit(const char* name, uint32_t size)
+{
+  struct config* config = NULL;
+  {
+    int config_fd = open(name, O_RDWR);
+    if (config_fd >= 0) 
+    {
+      void* mmap_result = mmap(
+        NULL, size,
+        PROT_READ | PROT_WRITE,
+        MAP_SHARED, config_fd, 0
+      );
+      if (mmap_result != MAP_FAILED) 
+      {
+        config = mmap_result;
+      }
+      close(config_fd);
+    }
+  }
+  return config;
+}
+
+struct config* config_quick_map(const char* name, uint32_t size) 
+{
+  int32_t permissions = 0777; // ignore permissions issues for now
+  
+  struct config* config = NULL;
+  {
+    int config_fd = open(name, O_RDWR | O_CREAT);
+    if (config_fd >= 0) 
+    {
+      int chmod_result = fchmod(config_fd, permissions);
+      if (chmod_result >= 0) 
+      {
+        int truncate_result = ftruncate(config_fd, size);
+        if (truncate_result >= 0) 
+        {
+          void* mmap_result = mmap(
+            NULL, size,
+            PROT_READ | PROT_WRITE,
+            MAP_SHARED, config_fd, 0
+          );
+          if (mmap_result != MAP_FAILED) 
+          {
+            config = mmap_result;
+          }
+        }
+      }
+      close(config_fd);
+    }
+  }
+  return config;
 }
 
 int real_main() {
 
     signal(SIGINT, handle_sigint);
 
-    // open up live config
     int32_t pagesize = sysconf(_SC_PAGESIZE); // just make a page
-    volatile struct config* cfg = NULL;
-    {
-      int32_t permissions = 0777; // ignore permissions issues for now
-
-      int32_t config_fd = open("config.bin", O_RDWR | O_CREAT);
-      fchmod(config_fd, permissions);
-      ftruncate(config_fd, pagesize);
-
-      cfg = mmap(
-          NULL, pagesize,
-          PROT_READ | PROT_WRITE,
-          MAP_SHARED, config_fd, 0
-      );
-      close(config_fd);
-    }
-
+    volatile struct config* cfg = config_quick_map("config.bin", pagesize);
 
     fd_tty = open("/dev/tty0", O_RDWR);
     int32_t fd_fb0 = open("/dev/fb0",  O_RDWR);
@@ -406,7 +497,7 @@ int real_main() {
         continue;
       }
 
-      draw_cycles_start = __builtin_ia32_rdtsc();
+      draw_cycles_start = get_rdtsc();
       draw_start = get_time_sec();
 
       #define CAIRO_SET_HEX_RGBA(cr, hex) \
@@ -478,7 +569,7 @@ int real_main() {
 
       memcpy(frame, frame_ram, fb0_size);
 
-      draw_cycles_end = __builtin_ia32_rdtsc();
+      draw_cycles_end = get_rdtsc();
       draw_cycles_elapsed = draw_cycles_end - draw_cycles_start;
       draw_end     = get_time_sec();
       draw_elapsed = draw_end - draw_start;
@@ -501,12 +592,13 @@ int main() {
   
   if (pid == 0) {
     real_main();
-    _exit(0);
+    return 0;
   } else {
     signal(SIGINT, SIG_IGN);
     int status;
     waitpid(pid, &status, 0);
     int32_t fd_tty = open("/dev/tty0", O_RDWR);
     ioctl(fd_tty, KDSETMODE, KD_TEXT); 
+    return 1;
   }
 }
