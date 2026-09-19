@@ -392,7 +392,7 @@ int real_main() {
     signal(SIGINT, handle_sigint);
 
     int32_t pagesize = sysconf(_SC_PAGESIZE); // just make a page
-    volatile struct config* cfg = config_quick_map("config.bin", pagesize);
+    volatile struct config* cfg = config_quick_map(".root/fbdev/data/config.bin", pagesize);
 
     fd_tty = open("/dev/tty0", O_RDWR);
     int32_t fd_fb0 = open("/dev/fb0",  O_RDWR);
@@ -432,10 +432,10 @@ int real_main() {
 
     // open up live texture
     // note: pretty much copypasted from above
-    struct tga_texture* sketch = tga_quick_map("texture.tga", screen_x, screen_y);
+    struct tga_texture* sketch = tga_quick_map(".root/fbdev/data/texture.tga", screen_x, screen_y);
     uint32_t sketch_size = tga_texture_size(sketch);
 
-    struct tga_texture* ui_elements = tga_quick_map("ui.tga", 2048, 2048);
+    struct tga_texture* ui_elements = tga_quick_map(".root/fbdev/data/ui.tga", 2048, 2048);
     uint32_t ui_elements_size = tga_texture_size(ui_elements);
 
     uint32_t* frame_ram = calloc(1, fb0_size);

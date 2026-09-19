@@ -1,4 +1,5 @@
-poc
 compile_commands.json
 *.tga
 .gdb_history
+.clangd
+bin
