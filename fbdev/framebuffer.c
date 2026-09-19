@@ -24,8 +24,8 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#define max(a, b) (a > b? a : b)
-#define min(a, b) (a < b? a : b)
+#define max(a, b) (((a) > (b))? (a) : (b))
+#define min(a, b) (((a) < (b))? (a) : (b))
 
 #define interpret(type_name, ptr, ...) \
     struct __attribute__((packed, may_alias)) type_name { __VA_ARGS__ } *type_name = \
@@ -256,7 +256,7 @@ struct tga_texture* tga_quick_map(const char* mapping_path, uint16_t width, uint
 
   uint32_t texture_size = sizeof(struct tga_texture) + width_32 * height_32 * pixel_depth_bytes;
   {
-    int result_open = open(mapping_path, O_RDWR | O_CREAT);;
+    int result_open = open(mapping_path, O_RDWR | O_CREAT, permissions);
     if (result_open >= 0) 
     {
       int texture_fd = result_open;
@@ -304,7 +304,7 @@ struct tga_texture* tga_quick_edit(const char* mapping_path, uint16_t width, uin
 
   uint32_t texture_size = sizeof(struct tga_texture) + width_32 * height_32 * pixel_depth_bytes;
   {
-    int result_open = open(mapping_path, O_RDWR);;
+    int result_open = open(mapping_path, O_RDWR);
     if (result_open >= 0) 
     {
       int texture_fd = result_open;
@@ -361,7 +361,7 @@ struct config* config_quick_map(const char* name, uint32_t size)
   
   struct config* config = NULL;
   {
-    int config_fd = open(name, O_RDWR | O_CREAT);
+    int config_fd = open(name, O_RDWR | O_CREAT, permissions);
     if (config_fd >= 0) 
     {
       int chmod_result = fchmod(config_fd, permissions);
@@ -387,14 +387,10 @@ struct config* config_quick_map(const char* name, uint32_t size)
   return config;
 }
 
-int real_main() {
-
-    signal(SIGINT, handle_sigint);
-
+int real_main(int fd_tty) {
     int32_t pagesize = sysconf(_SC_PAGESIZE); // just make a page
     volatile struct config* cfg = config_quick_map(".root/fbdev/data/config.bin", pagesize);
 
-    fd_tty = open("/dev/tty0", O_RDWR);
     int32_t fd_fb0 = open("/dev/fb0",  O_RDWR);
 
     struct fb_var_screeninfo v_info;
@@ -403,22 +399,6 @@ int real_main() {
     ioctl(fd_fb0, FBIOGET_VSCREENINFO, &v_info);
     ioctl(fd_fb0, FBIOGET_FSCREENINFO, &f_info);
 
-
-    // allow switching between virtual terminals
-    signal(SIGUSR1, virtual_terminal_switch);
-    signal(SIGUSR2, virtual_terminal_switch);
-    struct vt_mode mode = {
-        .mode   = VT_PROCESS,
-        .relsig = SIGUSR1,
-        .acqsig = SIGUSR2
-    };
-    ioctl(fd_tty, VT_SETMODE, &mode);
-
-
-    if (ioctl(fd_tty, KDSETMODE, KD_GRAPHICS) != 0) {
-      perror("KD_GRAPHICS failed\n");
-    }
-  
     // read screen sizes  
     int32_t screen_x = v_info.xres;
     int32_t screen_y = v_info.yres;
@@ -588,17 +568,56 @@ int real_main() {
 }
 
 int main() {
-  pid_t pid = fork(); // syscall(SYS_fork);
-  
+  int32_t fd_tty = open("/dev/tty0", O_RDWR);
+  int            saved_kd_mode;
+  struct vt_mode saved_vt_mode;
+  ioctl(fd_tty, VT_GETMODE, &saved_vt_mode);
+  ioctl(fd_tty, KDGETMODE,  &saved_kd_mode);
+
+  pid_t pid = fork();
+
   if (pid == 0) {
-    real_main();
+    // stop when I request it
+    signal(SIGINT, handle_sigint);
+
+    // allow switching between virtual terminals
+    signal(SIGUSR1, virtual_terminal_switch);
+    signal(SIGUSR2, virtual_terminal_switch);
+
+    struct vt_mode mode = {
+        .mode   = VT_PROCESS,
+        .relsig = SIGUSR1,
+        .acqsig = SIGUSR2
+    };
+
+    // tell us when vt switch happens
+    if (ioctl(fd_tty, VT_SETMODE, &mode) != 0) { 
+      perror("VT_SETMODE");
+      abort();
+    }
+    // tell system not to display fbcon
+    if (ioctl(fd_tty, KDSETMODE, KD_GRAPHICS) != 0) {
+      perror("KD_GRAPHICS");
+      abort();
+    }
+
+    real_main(fd_tty);
+    
+    ioctl(fd_tty, KDSETMODE,   saved_kd_mode); 
+    ioctl(fd_tty, VT_SETMODE, &saved_vt_mode); 
     return 0;
   } else {
     signal(SIGINT, SIG_IGN);
+
     int status;
     waitpid(pid, &status, 0);
-    int32_t fd_tty = open("/dev/tty0", O_RDWR);
-    ioctl(fd_tty, KDSETMODE, KD_TEXT); 
+
+    ioctl(fd_tty, KDSETMODE,   saved_kd_mode); 
+    ioctl(fd_tty, VT_SETMODE, &saved_vt_mode); 
+
+    if (WIFEXITED(status)) {
+      return WEXITSTATUS(status);
+    }
     return 1;
   }
 }
