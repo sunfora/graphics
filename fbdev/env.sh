@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# export project wise functions only
-# for the newly create shell so to not litter up
+# export projectwise functions only
+# for the newly created shell so to not litter up
 # the current if you source this file
 (
 	# this is used in Makefile 
@@ -27,5 +27,6 @@
 	)
 
 	guix shell ${packages[@]}
-	:
+	: # cause bash decs $SHLVL otherwise
+	  # for absolutely no reason
 )
