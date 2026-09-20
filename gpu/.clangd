@@ -1,0 +1,6 @@
+CompileFlags:
+  Add: [
+    "-std=c++17",
+    "-I/home/ivan/bin/intel/oneapi/compiler/latest/include",
+    "-Wno-unknown-argument"
+  ]

@@ -2,6 +2,12 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdbool.h>
+
+#ifndef remove_links
+  #define remove_links false
+#endif
+bool also_create = !(remove_links);
 
 int main() {
   char* command = "find . " 
@@ -42,12 +48,14 @@ int main() {
       }
 
       unlink(link_path);
-
-      if (symlink(highway_to_hell, link_path) == 0) {
-        printf("%s -> %s\n", link_path, highway_to_hell);
-      } else {
-        perror("symlink");
-        abort();
+      
+      if (also_create) {
+        if (symlink(highway_to_hell, link_path) == 0) {
+          printf("%s -> %s\n", link_path, highway_to_hell);
+        } else {
+          perror("symlink");
+          abort();
+        }
       }
     }
   }
