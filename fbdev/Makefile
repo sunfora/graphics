@@ -3,7 +3,7 @@ SHELL:=/usr/bin/env bash
 CC=gcc
 
 
-CFLAGS=$(shell pkg-config --cflags cairo)
+CFLAGS=$(shell pkg-config --cflags cairo) -fno-strict-aliasing -fno-omit-frame-pointer
 LDLIBS=$(shell pkg-config --libs cairo) -lm
 
 all: framebuffer
